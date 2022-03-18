@@ -9,7 +9,21 @@ Create conda environment for project. A version of conda must be installed on yo
 
 ```bash
   conda env create -f environment.yml
+  conda activate ml4h
 ```
+
+## Dataset
+
+Download the dataset from moodle and extract to data/
+
+    .
+    ├── ...
+    ├── data                    
+    │   ├── mitbih_test.csv
+    │   ├── mitbih_train.csv
+    │   ├── ptbdb_abnormal.csv
+    │   ├── ptbdb_normal.csv
+    └── ...
 
 
 ## Authors
