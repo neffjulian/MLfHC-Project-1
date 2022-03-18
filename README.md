@@ -12,6 +12,14 @@ Create conda environment for project. A version of conda must be installed on yo
   conda activate ml4h
 ```
 
+### Update Environment
+
+If there are changes in the environment file update them using
+
+```bash
+  conda env update -f environment.yml --prune
+```
+
 ## Dataset
 
 Download the dataset from moodle and extract to `data`
