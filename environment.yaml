@@ -1,0 +1,7 @@
+name: ml4h
+
+dependencies:
+  - python=3.10
+  - numpy
+  - matplotlib
+  - pandas
