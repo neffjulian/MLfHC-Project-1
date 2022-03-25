@@ -14,7 +14,7 @@ Create conda environment for project. A version of conda must be installed on yo
 
 ## Dataset
 
-Download the dataset from moodle and extract to data/
+Download the dataset from moodle and extract to `data`
 
     .
     ├── ...
