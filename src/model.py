@@ -1,3 +1,4 @@
+from re import X
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
@@ -83,9 +84,9 @@ class RNNModel(pl.LightningModule):
         self.log("test_loss", test_loss)
 
 
-class CNNModel(pl.LightningModule):
+class CNNModelBinary(pl.LightningModule):
     def __init__(self):
-        super(CNNModel, self).__init__()
+        super(CNNModelBinary, self).__init__()
 
         self.c1 = nn.Conv1d(1, 8, 5)
         self.c2 = nn.Conv1d(8, 16, 5)
@@ -100,11 +101,8 @@ class CNNModel(pl.LightningModule):
         self.flatten = nn.Flatten()
         self.flatten0 = nn.Flatten(0)
 
-        self.train_ROC = AUROC()
-        self.valid_ROC = AUROC()
-
-        self.train_PRC = PrecisionRecallCurve()
-        self.valid_PRC = PrecisionRecallCurve()
+        self.test_ROC = AUROC(pos_label=1)
+        self.test_PRC = PrecisionRecallCurve(pos_label=1)
 
     def forward(self, x):
         x = x.unsqueeze(1)
@@ -132,11 +130,7 @@ class CNNModel(pl.LightningModule):
         x, y = x.to(torch.float32), y.to(torch.float32)
         y_hat = self(x)
         loss = F.binary_cross_entropy(y_hat, y)
-        #self.train_ROC(y_hat, y.to(torch.int8))
-        #self.train_PRC(y_hat, y.to(torch.int8))
         self.log("train_loss", loss)
-        #self.log("train_ROC", self.train_ROC, on_step=True, on_epoch=False)
-        #self.log("train_PRC", self.train_PRC, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -144,15 +138,93 @@ class CNNModel(pl.LightningModule):
         x, y = x.to(torch.float32), y.to(torch.float32)
         y_hat = self(x)
         val_loss = F.binary_cross_entropy(y_hat, y)
-        #self.valid_ROC(y_hat, y.to(torch.int8))
-        #self.valid_PRC(y_hat, y.to(torch.int8))
         self.log("valid_loss", val_loss)
-        #self.log("valid_ROC", self.valid_ROC, on_step=True, on_epoch=False)
-        #self.log("valid_PRC", self.valid_PRC, on_step=True, on_epoch=False)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
         x, y = x.to(torch.float32), y.to(torch.float32)
         y_hat = self(x)
         test_loss = F.binary_cross_entropy(y_hat, y)
+        self.test_ROC.update(y_hat, y.to(torch.int8))
+        self.test_PRC.update(y_hat, y.to(torch.int8))
+        self.log("test_loss", test_loss)
+
+    def test_epoch_end(self, test_step_outputs):
+        test_ROC = self.test_ROC.compute()
+        self.log("test auroc", test_ROC)
+        print("Test ROC: ", test_ROC)
+
+        test_PRC = self.test_PRC.compute()
+        self.log("test auprc", test_PRC)
+        print("Test PRC: ", test_PRC)
+
+class CNNModelNonBinary(pl.LightningModule):
+    def __init__(self):
+        super(CNNModelNonBinary, self).__init__()
+
+        self.train_acc = Accuracy()
+        self.valid_acc = Accuracy()
+
+        self.train_f1 = F1Score()
+        self.val_f1 = F1Score()
+
+        self.c1 = nn.Conv1d(1, 8, 5)
+        self.c2 = nn.Conv1d(8, 16, 5)
+        self.c3 = nn.Conv1d(16, 32, 5)
+
+        self.fc1 = nn.Linear(608, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, 5)
+
+        self.maxP = nn.MaxPool1d(2)
+        self.dropout = nn.Dropout(0.1)
+
+        self.flatten = nn.Flatten()
+        self.flatten0 = nn.Flatten(0)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+
+        x = self.maxP(F.relu(self.c1(x)))
+        x = self.maxP(F.relu(self.c2(x)))
+        x = self.maxP(F.relu(self.c3(x)))
+
+        x = self.flatten(x)
+
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = self.fc3(x)
+
+        x = F.softmax(x, dim=1)
+        return x
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        return optimizer
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        loss = F.cross_entropy(y_hat, y)
+        self.train_acc(y_hat, y)
+        self.train_f1(y_hat, y)
+        self.log("train_loss", loss)
+        self.log('train_acc', self.train_acc, on_step=True, on_epoch=False)
+        self.log("train_f1", self.train_f1, on_step=True, on_epoch=False)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        val_loss = F.cross_entropy(y_hat, y)
+        self.valid_acc(y_hat, y)
+        self.val_f1(y_hat, y)
+        self.log("val_loss", val_loss)
+        self.log('val_acc', self.valid_acc, on_step=True, on_epoch=True)
+        self.log('val_f1', self.val_f1, on_step=True, on_epoch=True)
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        test_loss = F.cross_entropy(y_hat, y)
         self.log("test_loss", test_loss)
