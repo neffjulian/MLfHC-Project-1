@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from torchmetrics import Accuracy, F1Score
+from torchmetrics import Accuracy, F1Score, AUROC, PrecisionRecallCurve
 
 
 class RNNModel(pl.LightningModule):
@@ -100,6 +100,12 @@ class CNNModel(pl.LightningModule):
         self.flatten = nn.Flatten()
         self.flatten0 = nn.Flatten(0)
 
+        self.train_ROC = AUROC()
+        self.valid_ROC = AUROC()
+
+        self.train_PRC = PrecisionRecallCurve()
+        self.valid_PRC = PrecisionRecallCurve()
+
     def forward(self, x):
         x = x.unsqueeze(1)
 
@@ -123,19 +129,30 @@ class CNNModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
+        x, y = x.to(torch.float32), y.to(torch.float32)
         y_hat = self(x)
         loss = F.binary_cross_entropy(y_hat, y)
+        #self.train_ROC(y_hat, y.to(torch.int8))
+        #self.train_PRC(y_hat, y.to(torch.int8))
         self.log("train_loss", loss)
+        #self.log("train_ROC", self.train_ROC, on_step=True, on_epoch=False)
+        #self.log("train_PRC", self.train_PRC, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
+        x, y = x.to(torch.float32), y.to(torch.float32)
         y_hat = self(x)
         val_loss = F.binary_cross_entropy(y_hat, y)
-        self.log("val_loss", val_loss)
+        #self.valid_ROC(y_hat, y.to(torch.int8))
+        #self.valid_PRC(y_hat, y.to(torch.int8))
+        self.log("valid_loss", val_loss)
+        #self.log("valid_ROC", self.valid_ROC, on_step=True, on_epoch=False)
+        #self.log("valid_PRC", self.valid_PRC, on_step=True, on_epoch=False)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
+        x, y = x.to(torch.float32), y.to(torch.float32)
         y_hat = self(x)
         test_loss = F.binary_cross_entropy(y_hat, y)
         self.log("test_loss", test_loss)
