@@ -11,10 +11,10 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader, random_split
 
-from torchmetrics import Accuracy
+from torchmetrics import Accuracy, F1Score
 
 import pytorch_lightning as pl
-from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning import Trainer
 
 class TimeSeriesDataset(Dataset):
     def __init__(self, test=False):
@@ -35,7 +35,7 @@ class TimeSeriesDataset(Dataset):
         
 
 class MITDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size = 32, train_split=0.8, num_workers=4):
+    def __init__(self, batch_size = 64, train_split=0.8, num_workers=4):
         super().__init__()
         self.batch_size = batch_size
         self.train_split = train_split
@@ -73,7 +73,10 @@ class RNNModel(pl.LightningModule):
 
         self.train_acc = Accuracy()
         self.valid_acc = Accuracy()
-        self.test_Acc = Accuracy()
+
+        self.train_f1 = F1Score()
+        self.val_f1 = F1Score()
+
 
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -106,8 +109,10 @@ class RNNModel(pl.LightningModule):
         y_hat = self(x)
         loss = F.cross_entropy(y_hat, y)
         self.train_acc(y_hat, y)
+        self.train_f1(y_hat, y)
         self.log("train_loss", loss)
         self.log('train_acc', self.train_acc, on_step=True, on_epoch=False)
+        self.log("train_f1", self.train_f1, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -115,8 +120,10 @@ class RNNModel(pl.LightningModule):
         y_hat = self(x)
         val_loss = F.cross_entropy(y_hat, y)
         self.valid_acc(y_hat, y)
+        self.val_f1(y_hat, y)
         self.log("val_loss", val_loss)
-        self.log('valid_acc', self.valid_acc, on_step=True, on_epoch=True)
+        self.log('val_acc', self.valid_acc, on_step=True, on_epoch=True)
+        self.log('val_f1', self.val_f1, on_step=True, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
