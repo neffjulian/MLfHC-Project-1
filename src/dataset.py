@@ -9,15 +9,14 @@ from torch.utils.data import Dataset, DataLoader, random_split
 
 class TimeSeriesDataset(Dataset):
     def __init__(self, df: pd.DataFrame):
-        self.df = df
+        self.X = df.loc[:, list(range(187))].astype(np.float32).values
+        self.y = df.loc[:, 187].astype(np.int8).values
 
     def __len__(self):
-        return self.df.shape[0]
+        return self.X.__len__()
 
     def __getitem__(self, idx):
-        X = self.df.loc[idx, list(range(187))].astype(np.float32)
-        y = self.df.loc[idx, 187].astype(np.int8)
-        return torch.tensor(X), torch.tensor(y, dtype=torch.long)
+        return torch.tensor(self.X[idx]), torch.tensor(self.y[idx], dtype=torch.long)
 
 
 class MITDataModule(LightningDataModule):
