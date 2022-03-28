@@ -211,7 +211,6 @@ class CNNModel(pl.LightningModule):
 
         if self.nr_classes == 1:   
             x = self.flatten0(x)
-
         return x
 
     def configure_optimizers(self):
@@ -282,44 +281,63 @@ class CNNModel(pl.LightningModule):
             test_PRC = self.test_AUC(recall, precision)
             self.log("test prc", test_PRC)
 
-class CNNResidualModelBinary(pl.LightningModule):
-    def __init__(self):
-        super(CNNResidualModelBinary, self).__init__()
+class CNNResidual(pl.LightningModule):
+    def __init__(self, nr_classes = 1, lr = 1e-3, dropout= 0.1):
+        super(CNNResidual, self).__init__()
+
+        self.lr = lr
+        self.nr_classes = nr_classes
+        self.dropout = dropout
 
         self.c1 = nn.Conv1d(1, 8, 5)
-        self.c2 = nn.Conv1d(8, 16, 5)
+        self.c2 = nn.Conv1d(8, 15, 5)
         self.c3 = nn.Conv1d(16, 32, 5)
 
-        self.fc1 = nn.Linear(608, 64)
-        self.fc2 = nn.Linear(64, 32)
-        self.fc3 = nn.Linear(32, 1)
+        self.fc1 = nn.Linear(608, 187)
+        self.fc2 = nn.Linear(187, 32)
+        self.fc3 = nn.Linear(32, self.nr_classes)
+
+        self.fc4 = nn.Linear(187, 43)
 
         self.maxP = nn.MaxPool1d(2)
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(self.dropout)
         self.flatten = nn.Flatten()
         self.flatten0 = nn.Flatten(0)
 
-        self.test_ROC = AUROC(pos_label=1)
-        self.test_PRC = PrecisionRecallCurve(pos_label=1)
+        self.test_acc  = Accuracy()
         self.train_acc = Accuracy()
         self.valid_acc = Accuracy()
+
+        self.test_f1 = F1Score()
         self.train_f1 = F1Score()
-        self.val_f1 = F1Score()
+        self.valid_f1 = F1Score()
+
+        self.test_ROC = AUROC(pos_label=1)
+        self.test_PRC = PrecisionRecallCurve(pos_label=1)
+        self.test_AUC = AUC()
 
     def forward(self, x):
-        residual = x
+        r1 = self.fc4(x)
+        r1 = r1.unsqueeze(1)
+
+        r2 = torch.div(x, self.nr_classes + 1)
+        
         x = x.unsqueeze(1)
 
         x = self.maxP(F.relu(self.c1(self.dropout(x))))
         x = self.maxP(F.relu(self.c2(self.dropout(x))))
+        x = torch.cat((x, r1), dim=1)
         x = self.maxP(F.relu(self.c3(self.dropout(x))))
 
         x = self.flatten(x)
-        x = self.fc1(F.relu(x))
-        x = self.fc2(F.relu(x) + residual)
-        x = self.fc3(F.relu(x))
 
-        x = self.flatten0(x)
+        x = self.fc1(F.relu(self.dropout(x)))
+        x = self.fc2(F.relu(self.dropout(x)) + r2)
+        x = self.fc3(F.relu(self.dropout(x)))
+
+        if self.nr_classes == 1:   
+            x = self.flatten0(x)
+
         x = torch.sigmoid(x)
         return x
 
@@ -329,42 +347,64 @@ class CNNResidualModelBinary(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        x, y = x.to(torch.float32), y.to(torch.float32)
-        y_hat = self(x)
 
-        loss = F.binary_cross_entropy(y_hat, y)
-        self.train_acc(y_hat, y.to(torch.int8))
-        self.train_f1(y_hat, y.to(torch.int8))
+        if self.nr_classes==1:
+            y_hat = self(x.to(torch.float32))
+            y_hat = torch.sigmoid(y_hat)
+            loss = F.binary_cross_entropy(y_hat, y.to(torch.float32))
+        else:
+            y_hat = self(x)
+            loss = F.cross_entropy(y_hat, y)
+            y_hat = F.softmax(y_hat, dim=1)
+
+        self.train_acc(y_hat, y)
+        self.train_f1(y_hat, y)
         self.log("train_loss", loss)
         self.log('train_acc', self.train_acc, on_step=True, on_epoch=False)
-        self.log("train_f1", self.train_f1, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        x, y = x.to(torch.float32), y.to(torch.float32)
-        y_hat = self(x)
-        val_loss = F.binary_cross_entropy(y_hat, y)
-        self.valid_acc(y_hat, y.to(torch.int8))
-        self.val_f1(y_hat, y.to(torch.int8))
-        self.log("valid_loss", val_loss)
+
+        if self.nr_classes==1:
+            y_hat = self(x.to(torch.float32))
+            y_hat = torch.sigmoid(y_hat)
+            loss = F.binary_cross_entropy(y_hat, y.to(torch.float32))
+        else:
+            y_hat = self(x)
+            loss = F.cross_entropy(y_hat, y)
+            y_hat = F.softmax(y_hat, dim=1)
+
+        self.valid_acc(y_hat, y)
+        self.log("valid_loss", loss)
         self.log('val_acc', self.valid_acc, on_step=True, on_epoch=True)
-        self.log('val_f1', self.val_f1, on_step=True, on_epoch=True)
 
 
     def test_step(self, batch, batch_idx):
         x, y = batch
-        x, y = x.to(torch.float32), y.to(torch.float32)
-        y_hat = self(x)
-        test_loss = F.binary_cross_entropy(y_hat, y)
-        self.test_ROC.update(y_hat, y.to(torch.int8))
-        self.test_PRC.update(y_hat, y.to(torch.int8))
-        self.log("test_loss", test_loss)
-        return test_loss
 
-    def test_epoch_end(self, test_step_outputs):
-        test_ROC = self.test_ROC.compute()
-        print("Test ROC: ", test_ROC)
+        if self.nr_classes==1:
+            y_hat = self(x.to(torch.float32))
+            y_hat = torch.sigmoid(y_hat)
+            loss = F.binary_cross_entropy(y_hat, y.to(torch.float32))
+            self.test_ROC.update(y_hat, y)
+            self.test_PRC.update(y_hat, y)
+        else:
+            y_hat = self(x)
+            loss = F.cross_entropy(y_hat, y)
+            y_hat = F.softmax(y_hat, dim=1)
 
-        test_PRC = self.test_PRC.compute()
-        print("Test PRC: ", test_PRC)
+        acc = self.test_acc(y_hat, y.to(torch.int8))
+        f1 = self.test_f1(y_hat, y.to(torch.int8))
+        self.log("test_loss", loss)
+        self.log("test_f1", f1)
+        self.log("test_acc", acc)
+
+    def test_step_end(self, test_step_outputs):
+        if(self.nr_classes == 1):
+            test_ROC = self.test_ROC.compute()
+            self.log("test roc", test_ROC)
+
+            precision, recall, threshold = self.test_PRC.compute()
+            test_PRC = self.test_AUC(recall, precision)
+            self.log("test prc", test_PRC)
