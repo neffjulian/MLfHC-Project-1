@@ -1,141 +1,72 @@
-import numpy as np
 import pandas as pd
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
 
-import os
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import Variable
-from torch.utils.data import Dataset, DataLoader, random_split
-
-from torchmetrics import Accuracy, F1Score
-
-import pytorch_lightning as pl
-from pytorch_lightning import Trainer
-
-class TimeSeriesDataset(Dataset):
-    def __init__(self, test=False):
-        train_file = "data/mitbih_train.csv"
-        test_file = "data/mitbih_test.csv"
-        if test:
-            self.df = pd.read_csv(test_file, header=None)
-        else:
-            self.df = pd.read_csv(train_file, header=None)
-
-    def __len__(self):
-        return self.df.shape[0]
-
-    def __getitem__(self, idx):
-        X = self.df.loc[idx, list(range(187))].astype(np.float32)
-        y = self.df.loc[idx, 187].astype(np.int8)
-        return torch.tensor(X), torch.tensor(y, dtype=torch.long)
-        
-
-class MITDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size = 64, train_split=0.8, num_workers=4):
-        super().__init__()
-        self.batch_size = batch_size
-        self.train_split = train_split
-        self.num_workers = num_workers
-        
-    
-    def setup(self, stage=None):
-        timeseries_full = TimeSeriesDataset()
-        train_length = int(self.train_split*len(timeseries_full))
-        val_length = len(timeseries_full) - train_length
-        self.train_set, self.val_set = random_split(timeseries_full, [train_length, val_length])
-        self.test_set = TimeSeriesDataset(test=True)
-
-    def train_dataloader(self):
-        return DataLoader(self.train_set, batch_size=self.batch_size, num_workers=self.num_workers)
-
-    def val_dataloader(self):
-        return DataLoader(self.val_set, batch_size=self.batch_size, num_workers=self.num_workers)
-
-    def test_dataloader(self):
-        return DataLoader(self.test_set, batch_size=self.batch_size, num_workers=self.num_workers)  
-
-class RNNModel(pl.LightningModule):
-    def __init__(self, 
-                 input_size,
-                 hidden_size,
-                 num_layers,
-                 dropout = 0,
-                 num_classes = 5,
-                 
-    ):
-        super(RNNModel, self).__init__()
-        
-        self.save_hyperparameters()
-
-        self.train_acc = Accuracy()
-        self.valid_acc = Accuracy()
-
-        self.train_f1 = F1Score()
-        self.val_f1 = F1Score()
+from keras import optimizers, losses, activations, models
+from keras.callbacks import ModelCheckpoint, EarlyStopping, LearningRateScheduler, ReduceLROnPlateau
+from keras.layers import Dense, Input, Dropout, Convolution1D, MaxPool1D, GlobalMaxPool1D, GlobalAveragePooling1D, \
+    concatenate
+from sklearn.metrics import f1_score, accuracy_score
 
 
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.dropout = dropout
+df_train = pd.read_csv("../data/mitbih_train.csv", header=None)
+df_train = df_train.sample(frac=1)
+df_test = pd.read_csv("../data/mitbih_test.csv", header=None)
 
-        self.lstm = nn.LSTM(input_size=input_size, 
-                            hidden_size=hidden_size,
-                            num_layers=num_layers, 
-                            dropout=dropout, 
-                            batch_first=True)
-        self.linear = nn.Linear(hidden_size, num_classes)
+Y = np.array(df_train[187].values).astype(np.int8)
+X = np.array(df_train[list(range(187))].values)[..., np.newaxis]
 
-    def forward(self, x):
-        h_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #hidden state
-        c_0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size)) #internal state
+Y_test = np.array(df_test[187].values).astype(np.int8)
+X_test = np.array(df_test[list(range(187))].values)[..., np.newaxis]
 
-        x = x.unsqueeze(2)
-        out, (hn, cn) = self.lstm(x, (h_0, c_0))
-        x = self.linear(out[:, -1, :])
-        x = F.softmax(x, dim=1)
-        return x
 
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
-        return optimizer
+def get_model():
+    nclass = 5
+    inp = Input(shape=(187, 1))
+    img_1 = Convolution1D(16, kernel_size=5, activation=activations.relu, padding="valid")(inp)
+    img_1 = Convolution1D(16, kernel_size=5, activation=activations.relu, padding="valid")(img_1)
+    img_1 = MaxPool1D(pool_size=2)(img_1)
+    img_1 = Dropout(rate=0.1)(img_1)
+    img_1 = Convolution1D(32, kernel_size=3, activation=activations.relu, padding="valid")(img_1)
+    img_1 = Convolution1D(32, kernel_size=3, activation=activations.relu, padding="valid")(img_1)
+    img_1 = MaxPool1D(pool_size=2)(img_1)
+    img_1 = Dropout(rate=0.1)(img_1)
+    img_1 = Convolution1D(32, kernel_size=3, activation=activations.relu, padding="valid")(img_1)
+    img_1 = Convolution1D(32, kernel_size=3, activation=activations.relu, padding="valid")(img_1)
+    img_1 = MaxPool1D(pool_size=2)(img_1)
+    img_1 = Dropout(rate=0.1)(img_1)
+    img_1 = Convolution1D(256, kernel_size=3, activation=activations.relu, padding="valid")(img_1)
+    img_1 = Convolution1D(256, kernel_size=3, activation=activations.relu, padding="valid")(img_1)
+    img_1 = GlobalMaxPool1D()(img_1)
+    img_1 = Dropout(rate=0.2)(img_1)
 
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x)
-        loss = F.cross_entropy(y_hat, y)
-        self.train_acc(y_hat, y)
-        self.train_f1(y_hat, y)
-        self.log("train_loss", loss)
-        self.log('train_acc', self.train_acc, on_step=True, on_epoch=False)
-        self.log("train_f1", self.train_f1, on_step=True, on_epoch=False)
-        return loss
+    dense_1 = Dense(64, activation=activations.relu, name="dense_1")(img_1)
+    dense_1 = Dense(64, activation=activations.relu, name="dense_2")(dense_1)
+    dense_1 = Dense(nclass, activation=activations.softmax, name="dense_3_mitbih")(dense_1)
 
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x)
-        val_loss = F.cross_entropy(y_hat, y)
-        self.valid_acc(y_hat, y)
-        self.val_f1(y_hat, y)
-        self.log("val_loss", val_loss)
-        self.log('val_acc', self.valid_acc, on_step=True, on_epoch=True)
-        self.log('val_f1', self.val_f1, on_step=True, on_epoch=True)
+    model = models.Model(inputs=inp, outputs=dense_1)
+    opt = optimizers.Adam(0.001)
 
-    def test_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat = self(x)
-        test_loss = F.cross_entropy(y_hat, y)
-        self.log("test_loss", test_loss)
+    model.compile(optimizer=opt, loss=losses.sparse_categorical_crossentropy, metrics=['acc'])
+    model.summary()
+    return model
 
-if __name__ == '__main__':
-    pl.seed_everything(1234)
+model = get_model()
+file_path = "baseline_cnn_mitbih.h5"
+checkpoint = ModelCheckpoint(file_path, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
+early = EarlyStopping(monitor="val_acc", mode="max", patience=5, verbose=1)
+redonplat = ReduceLROnPlateau(monitor="val_acc", mode="max", patience=3, verbose=2)
+callbacks_list = [checkpoint, early, redonplat]  # early
 
-    model = RNNModel(1, 64, 1)
-    trainer = Trainer()
+model.fit(X, Y, epochs=1000, verbose=1, callbacks=callbacks_list, validation_split=0.1)
+model.load_weights(file_path)
 
-    mit = MITDataModule()
-    trainer.fit(model, datamodule=mit)   
+pred_test = model.predict(X_test)
+pred_test = np.argmax(pred_test, axis=-1)
+
+f1 = f1_score(Y_test, pred_test, average="macro")
+
+print("Test f1 score : %s "% f1)
+
+acc = accuracy_score(Y_test, pred_test)
+
+print("Test accuracy score : %s "% acc)
