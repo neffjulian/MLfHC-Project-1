@@ -332,14 +332,13 @@ class CNNResidual(pl.LightningModule):
         x = self.flatten(x)
 
         x = self.fc1(F.relu(self.dropout(x)))
-        x = self.fc2(F.relu(self.dropout(x)))
+        x = self.fc2(F.relu(self.dropout(x)) + r2)
         x = self.fc3(F.relu(self.dropout(x)))
-
-        x = self.flatten0(x)
-        x = torch.sigmoid(x)
 
         if self.nr_classes == 1:   
             x = self.flatten0(x)
+
+        x = torch.sigmoid(x)
         return x
 
     def configure_optimizers(self):
