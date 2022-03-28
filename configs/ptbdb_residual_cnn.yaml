@@ -1,0 +1,22 @@
+experiment_name: "ptbdb_residual_cnn"
+
+# Model and dataset for experiment
+model: "vanilla_cnn"
+dataset: "ptbdb"
+
+seed: 1234
+
+# Training parameters
+device: "cpu"
+batch_size: 32
+n_epochs: 200
+early_stopping: true
+train_val_split: 0.9
+
+# This parameters are passed to the model
+model_args:
+  lr: 0.001
+  num_classes: 1
+  dropout: 0.1
+  optimizer: "adam"
+  criterion: "binary_cross_entropy"

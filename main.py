@@ -1,22 +1,22 @@
 import argparse
 import os
-import sys
 
 import pandas as pd
 import yaml
 from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from sklearn.model_selection import train_test_split
 
 from src.dataset import MITDataModule
-from src.model import CNNBaseline, CNNModelNonBinary, RNNModel
-
+from src.model import CNNBaseline, CNNModel, RNNModel, CNNResidual
 
 
 MODEL_DICT = {
     "baseline_cnn": CNNBaseline,
     "vanilla_rnn": RNNModel,
-    "vanilla_cnn": CNNModelNonBinary
+    "vanilla_cnn": CNNModel,
+    "cnn_residual": CNNResidual
 }
 
 
@@ -36,7 +36,7 @@ def get_datamodule(name, **kwargs):
     return MITDataModule(df_train, df_test, **kwargs)
 
 
-def main(cfg):
+def run_experiment(cfg):
     seed_everything(1234)
 
     datamodule = get_datamodule(
@@ -51,8 +51,10 @@ def main(cfg):
     if cfg["early_stopping"]:
         callbacks.append(EarlyStopping(monitor="val_loss"))
 
+    logger = TensorBoardLogger(save_dir="logs", name=cfg["experiment_name"])
+
     trainer = Trainer(max_epochs=cfg["n_epochs"], callbacks=callbacks,
-                      accelerator=cfg["device"], default_root_dir="logs")
+                      accelerator=cfg["device"], default_root_dir="logs", logger=logger)
     trainer.fit(model, datamodule=datamodule)
     trainer.test(model, datamodule=datamodule)
 
@@ -61,10 +63,18 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="path to config file",
-                        default="configs/default_config.yaml")
+                        default="configs/mitbih_baseline_cnn.yaml")
+    parser.add_argument("--all", help="run all experiments", action="store_true")
     args = parser.parse_args()
+
+    if args.all:
+        config_dir = "configs"
+        for filename in os.listdir(config_dir):
+            file = os.path.join(config_dir, filename)
+            with open(file) as f:
+                config = yaml.load(f, yaml.FullLoader)
+            run_experiment(config)
 
     with open(args.config) as f:
         config = yaml.load(f, yaml.FullLoader)
-
-    main(config)
+    run_experiment(config)

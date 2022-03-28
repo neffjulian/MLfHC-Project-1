@@ -1,5 +1,7 @@
+experiment_name: "mitbih_vanilla_cnn"
+
 # Model and dataset for experiment
-model: "baseline_cnn"
+model: "vanilla_cnn"
 dataset: "mitbih"
 
 seed: 1234
@@ -7,7 +9,7 @@ seed: 1234
 # Training parameters
 device: "cpu"
 batch_size: 32
-n_epochs: 20
+n_epochs: 30
 early_stopping: true
 train_val_split: 0.9
 
@@ -15,3 +17,6 @@ train_val_split: 0.9
 model_args:
   lr: 0.001
   num_classes: 5
+  dropout: 0.1
+  optimizer: "adam"
+  criterion: "cross_entropy"
