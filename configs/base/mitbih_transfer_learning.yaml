@@ -1,0 +1,23 @@
+experiment_name: "mitbih_transfer_learning"
+
+# Model and dataset for experiment
+model: "transfer_learning"
+dataset: "mitbih"
+
+seed: 1234
+
+# Training parameters
+device: "cpu"
+batch_size: 64
+n_epochs: 30
+early_stopping: true
+patience: 6
+train_val_split: 0.9
+
+# This parameters are passed to the model
+model_args:
+  lr: 0.001
+  num_classes: 5
+  dropout: 0.1
+  optimizer: "adam"
+  criterion: "cross_entropy"

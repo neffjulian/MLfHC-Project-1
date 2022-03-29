@@ -1,4 +1,5 @@
 from re import X
+from turtle import forward
 from unicodedata import bidirectional
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torchmetrics import Accuracy, AUROC, AUC, PrecisionRecallCurve
+import torchvision.models as models
 
 OPTIMIZER = {
     "adam": Adam
@@ -551,6 +553,110 @@ class CNNResidual(pl.LightningModule):
         logits = self.fc3(F.relu(self.dropout(x)))
 
         return logits
+
+    def configure_optimizers(self):
+        optimizer = self.optimizer(self.parameters(), lr=1e-3)
+        return optimizer
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+        else:
+            loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+
+        acc = self.train_acc(y_pred, y)
+        self.log("train_loss", loss)
+        self.log('train_acc', acc, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+        else:
+            loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+
+        acc = self.val_acc(y_pred, y)
+        self.log("val_loss", loss)
+        self.log('val_acc', acc, prog_bar=True)
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+            self.test_AUROC(y_pred, y)
+            self.test_PRC(y_pred, y)
+        else:
+            loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+
+        acc = self.test_acc(y_pred, y)
+        self.log("test_loss", loss)
+        self.log("test_acc", acc)
+
+    def test_step_end(self, test_step_outputs):
+        if(self.num_classes == 1):
+            test_ROC = self.test_AUROC.compute()
+            self.log("test roc", test_ROC)
+
+            precision, recall, threshold = self.test_PRC.compute()
+            self.log("test_precision", precision)
+            self.log("test_recall", recall)
+            self.log("test_threshold", threshold)
+            test_PRC = self.test_AUC(recall, precision)
+            self.log("test prc", test_PRC)
+
+class TLModel(pl.LightningModule):
+    def __init__(self, criterion, optimizer, num_classes=1, lr=1e-3, dropout=0.1):
+        super(TLModel, self).__init__()
+
+        self.save_hyperparameters()
+
+        self.train_acc = Accuracy()
+        self.val_acc = Accuracy()
+        self.test_acc = Accuracy()
+
+        self.test_AUROC = AUROC(pos_label=1)
+        self.test_PRC = PrecisionRecallCurve(pos_label=1)
+        self.test_AUC = AUC()
+
+        self.lr = lr
+        self.num_classes = num_classes
+        self.dropout = dropout
+        self.optimizer = OPTIMIZER[optimizer]
+        self.criterion = CRITERION[criterion]()
+
+        self.pretrained = models.resnet18(pretrained=(True))
+        self.pretrained.eval()
+
+        for param in self.pretrained.parameters():
+            param.requires_grad = False
+
+        self.classifier = nn.Linear(1000, self.num_classes)
+        self.fc1 = nn.Linear(187, 53)
+
+        self.conv = nn.Conv1d(1, 3, 5)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = x.unsqueeze(1)
+        x = self.conv(x)
+        x = x.view(x.size(dim=0), 3, 7, 7)
+        x = self.pretrained(x)
+        x = self.classifier(x)
+        return x
 
     def configure_optimizers(self):
         optimizer = self.optimizer(self.parameters(), lr=1e-3)

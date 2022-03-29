@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 
 from src.dataset import MITDataModule
-from src.model import CNNBaseline, CNNModel, RNNModel, CNNResidual, BidirectionalLSTM
+from src.model import CNNBaseline, CNNModel, RNNModel, CNNResidual, BidirectionalLSTM, TLModel
 
 
 MODEL_DICT = {
@@ -19,7 +19,8 @@ MODEL_DICT = {
     "vanilla_rnn": RNNModel,
     "vanilla_cnn": CNNModel,
     "cnn_residual": CNNResidual,
-    "bidirectional_lstm": BidirectionalLSTM
+    "bidirectional_lstm": BidirectionalLSTM,
+    "transfer_learning": TLModel
 }
 
 
