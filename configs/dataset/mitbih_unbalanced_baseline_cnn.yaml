@@ -3,7 +3,6 @@ experiment_name: "mitbih_unbalanced_baseline_cnn"
 # Model and dataset for experiment
 model: "baseline_cnn"
 dataset: "mitbih"
-balanced: True
 
 seed: 1234
 

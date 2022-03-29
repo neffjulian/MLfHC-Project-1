@@ -38,7 +38,7 @@ Download the dataset from moodle and extract to `data`
 Each experiment has its own config file in the configs folder. An experiment can be run through
 
 ```bash
-  python main.py --config configs/mitbih_baseline_cnn.yaml
+  python main.py --config configs/base/mitbih_baseline_cnn.yaml
 ```
 
 ## Authors
