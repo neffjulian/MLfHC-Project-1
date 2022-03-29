@@ -49,7 +49,7 @@ def run_experiment(cfg):
 
     callbacks = []
     if cfg["early_stopping"]:
-        callbacks.append(EarlyStopping(monitor="val_loss"))
+        callbacks.append(EarlyStopping(monitor="val_loss", patience=cfg["patience"]))
 
     logger = TensorBoardLogger(save_dir="logs", name=cfg["experiment_name"])
 
@@ -74,7 +74,7 @@ if __name__ == "__main__":
             with open(file) as f:
                 config = yaml.load(f, yaml.FullLoader)
             run_experiment(config)
-
-    with open(args.config) as f:
-        config = yaml.load(f, yaml.FullLoader)
-    run_experiment(config)
+    else:
+        with open(args.config) as f:
+            config = yaml.load(f, yaml.FullLoader)
+        run_experiment(config)
