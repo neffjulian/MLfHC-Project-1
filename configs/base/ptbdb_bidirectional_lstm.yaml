@@ -3,6 +3,7 @@ experiment_name: "ptbdb_bidirectional_lstm"
 # Model and dataset for experiment
 model: "bidirectional_lstm"
 dataset: "ptbdb"
+resample: true
 
 seed: 1234
 
@@ -16,10 +17,10 @@ train_val_split: 0.9
 
 # This parameters are passed to the model
 model_args:
-  hidden_size: 100
-  num_layers: 2
+  hidden_size: 10
+  num_layers: 1
   dropout: 0.1
-  lr: 0.001
+  lr: 0.01
   num_classes: 1
   dropout: 0.1
   optimizer: "adam"

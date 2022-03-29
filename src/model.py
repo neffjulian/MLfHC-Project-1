@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -13,7 +13,8 @@ from torchmetrics import Accuracy, AUROC, AUC, PrecisionRecallCurve
 import torchvision.models as models
 
 OPTIMIZER = {
-    "adam": Adam
+    "adam": Adam,
+    "sgd": SGD
 }
 
 CRITERION = {
@@ -181,10 +182,10 @@ class RNNModel(pl.LightningModule):
         self.linear = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
-        hidden_cell = (torch.zeros(self.num_layers, x.size(0), self.hidden_size),
-                       torch.zeros(self.num_layers, x.size(0), self.hidden_size))
+        h0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))  # Initial hidden state
+        c0 = Variable(torch.zeros(self.num_layers, x.size(0),self.hidden_size))  # Initial cell state
         x = x.unsqueeze(2)
-        x, hidden_cell = self.lstm(x, hidden_cell)
+        x, _ = self.lstm(x, (h0, c0))
         x = F.dropout(x[:, -1, :], 0.1)
         x = F.relu(x)
         logits = self.linear(x)
@@ -302,8 +303,8 @@ class BidirectionalLSTM(pl.LightningModule):
         self.linear = nn.Linear(2*hidden_size, num_classes)
 
     def forward(self, x):
-        hidden_cell = (torch.zeros(2*self.num_layers, x.size(0), self.hidden_size),
-                       torch.zeros(2*self.num_layers, x.size(0), self.hidden_size))
+        h0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))  # Initial hidden state
+        c0 = Variable(torch.zeros(self.num_layers, x.size(0),self.hidden_size))  # Initial cell state
         x = x.unsqueeze(1)
 
         x = self.cn1(x)
@@ -314,9 +315,9 @@ class BidirectionalLSTM(pl.LightningModule):
         x = self.relu2(x)
         x = self.max_pool2(x)
 
-        x = x.transpose(1,2)
+        x = x.transpose(1, 2)
 
-        x, hidden_cell = self.lstm(x, hidden_cell)
+        x, _ = self.lstm(x, (h0, c0))
         x = F.dropout(x[:, -1, :], 0.1)
         x = F.relu(x)
         logits = self.linear(x)
@@ -617,6 +618,7 @@ class CNNResidual(pl.LightningModule):
             self.log("test_threshold", threshold)
             test_PRC = self.test_AUC(recall, precision)
             self.log("test prc", test_PRC)
+
 
 class TLModel(pl.LightningModule):
     def __init__(self, criterion, optimizer, num_classes=1, lr=1e-3, dropout=0.1):

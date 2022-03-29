@@ -44,15 +44,18 @@ def get_balanced_dataset(df):
     return pd.concat([df0_resampled, df1_resampled, df2_resampled, df3_resampled, df4_resampled]).reset_index(drop=True)
 
 
-def get_datamodule(name, resample=False, **kwargs):
+def get_datamodule(name, do_resample=False, **kwargs):
     if name == "mitbih":
         df_train = pd.read_csv("data/mitbih_train.csv", header=None)
         df_test = pd.read_csv("data/mitbih_test.csv", header=None)
-        if resample:
+        if do_resample:
             df_train = get_balanced_dataset(df_train)
     elif name == "ptbdb":
         df_1 = pd.read_csv("data/ptbdb_normal.csv", header=None)
         df_2 = pd.read_csv("data/ptbdb_abnormal.csv", header=None)
+        if do_resample:
+            df_1 = resample(df_1, n_samples=7500, random_state=42, replace=True)
+            df_2 = resample(df_2, n_samples=7500, random_state=42, replace=True)
         df = pd.concat([df_1, df_2])
         df_train, df_test = train_test_split(
             df, test_size=0.2, random_state=1337, stratify=df[187])

@@ -3,6 +3,7 @@ experiment_name: "ptbdb_vanilla_rnn"
 # Model and dataset for experiment
 model: "vanilla_rnn"
 dataset: "ptbdb"
+resample: true
 
 seed: 1234
 
@@ -16,9 +17,9 @@ train_val_split: 0.9
 
 # This parameters are passed to the model
 model_args:
-  hidden_size: 100
+  hidden_size: 10
   num_layers: 1
-  lr: 0.001
+  lr: 0.01
   num_classes: 1
   optimizer: "adam"
   criterion: "binary_cross_entropy"
