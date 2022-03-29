@@ -1,0 +1,26 @@
+experiment_name: "mitbih_bidirectional_lstm"
+
+# Model and dataset for experiment
+model: "bidirectional_lstm"
+dataset: "mitbih"
+
+seed: 1234
+
+# Training parameters
+device: "cpu"
+batch_size: 32
+n_epochs: 30
+early_stopping: true
+patience: 6
+train_val_split: 0.9
+
+# This parameters are passed to the model
+model_args:
+  hidden_size: 100
+  num_layers: 2
+  dropout: 0.1
+  lr: 0.001
+  num_classes: 5
+  dropout: 0.1
+  optimizer: "adam"
+  criterion: "cross_entropy"

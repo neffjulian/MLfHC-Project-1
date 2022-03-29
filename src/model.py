@@ -1,4 +1,5 @@
 from re import X
+from unicodedata import bidirectional
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
@@ -17,6 +18,7 @@ CRITERION = {
     "cross_entropy": nn.CrossEntropyLoss,
     "binary_cross_entropy": nn.BCEWithLogitsLoss
 }
+
 
 class CNNBaseline(pl.LightningModule):
     def __init__(self, num_classes, lr, optimizer, criterion):
@@ -139,11 +141,11 @@ class CNNBaseline(pl.LightningModule):
 
 class RNNModel(pl.LightningModule):
     def __init__(self,
-                 input_size,
                  hidden_size,
                  num_layers,
                  optimizer,
                  criterion,
+                 input_size=1,
                  dropout=0,
                  num_classes=5,
                  lr=1e-3
@@ -153,16 +155,21 @@ class RNNModel(pl.LightningModule):
         self.save_hyperparameters()
 
         self.train_acc = Accuracy()
-        self.valid_acc = Accuracy()
+        self.val_acc = Accuracy()
         self.test_acc = Accuracy()
+
+        self.test_AUROC = AUROC(pos_label=1)
+        self.test_PRC = PrecisionRecallCurve(pos_label=1)
+        self.test_AUC = AUC()
 
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.dropout = dropout
         self.lr = lr
+        self.num_classes = num_classes
         self.optimizer = OPTIMIZER[optimizer]
-        self.loss = CRITERION[criterion]()
+        self.criterion = CRITERION[criterion]()
 
         self.lstm = nn.LSTM(input_size=input_size,
                             hidden_size=hidden_size,
@@ -172,15 +179,14 @@ class RNNModel(pl.LightningModule):
         self.linear = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
-        h_0 = Variable(torch.zeros(self.num_layers, x.size(0),
-                       self.hidden_size))  # hidden state
-        c_0 = Variable(torch.zeros(self.num_layers, x.size(0),
-                       self.hidden_size))  # internal state
-
+        hidden_cell = (torch.zeros(self.num_layers, x.size(0), self.hidden_size),
+                       torch.zeros(self.num_layers, x.size(0), self.hidden_size))
         x = x.unsqueeze(2)
-        out, (hn, cn) = self.lstm(x, (h_0, c_0))
-        x = self.linear(out[:, -1, :])
-        return x
+        x, hidden_cell = self.lstm(x, hidden_cell)
+        x = F.dropout(x[:, -1, :], 0.1)
+        x = F.relu(x)
+        logits = self.linear(x)
+        return logits
 
     def configure_optimizers(self):
         optimizer = self.optimizer(self.parameters(), lr=self.lr)
@@ -189,9 +195,14 @@ class RNNModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        loss = self.loss(y_hat, y)
-        out = F.softmax(y_hat, dim=1)
-        acc = self.train_acc(out, y)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+        else:
+            loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+        acc = self.train_acc(y_pred, y)
         self.log("train_loss", loss)
         self.log('train_acc', acc, prog_bar=True)
         return loss
@@ -199,31 +210,187 @@ class RNNModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        val_loss = self.loss(y_hat, y)
-        out = F.softmax(y_hat, dim=1)
-        acc = self.valid_acc(out, y)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            val_loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+        else:
+            val_loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+        acc = self.val_acc(y_pred, y)
         self.log("val_loss", val_loss)
         self.log('val_acc', acc, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
-        test_loss = self.loss(y_hat, y)
-        out = F.softmax(y_hat, dim=1)
-        acc = self.test_acc(out, y)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            test_loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+            self.test_AUROC(y_pred, y)
+            self.test_PRC(y_pred, y)
+        else:
+            test_loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+        acc = self.test_acc(y_pred, y)
         self.log("test_loss", test_loss)
         self.log("test_acc", acc)
 
+    def test_step_end(self, test_step_outputs):
+        if(self.num_classes == 1):
+            test_ROC = self.test_AUROC.compute()
+            self.log("test roc", test_ROC)
+
+            precision, recall, threshold = self.test_PRC.compute()
+            self.log("test_precision", precision)
+            self.log("test_recall", recall)
+            self.log("test_threshold", threshold)
+            test_PRC = self.test_AUC(recall, precision)
+            self.log("test prc", test_PRC)
+
+
+class BidirectionalLSTM(pl.LightningModule):
+    def __init__(self,
+                 hidden_size,
+                 num_layers,
+                 optimizer,
+                 criterion,
+                 input_size=1,
+                 dropout=0,
+                 num_classes=5,
+                 lr=1e-3
+                 ):
+        super(BidirectionalLSTM, self).__init__()
+
+        self.save_hyperparameters()
+
+        self.train_acc = Accuracy()
+        self.val_acc = Accuracy()
+        self.test_acc = Accuracy()
+
+        self.test_AUROC = AUROC(pos_label=1)
+        self.test_PRC = PrecisionRecallCurve(pos_label=1)
+        self.test_AUC = AUC()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.lr = lr
+        self.num_classes = num_classes
+        self.optimizer = OPTIMIZER[optimizer]
+        self.criterion = CRITERION[criterion]()
+
+        self.cn1 = nn.Conv1d(1, input_size, kernel_size=3)
+        self.relu1 = nn.ReLU()
+        self.max_pool1 = nn.MaxPool1d(2)
+
+        self.cn2 = nn.Conv1d(input_size, input_size, kernel_size=3)
+        self.relu2 = nn.ReLU()
+        self.max_pool2 = nn.MaxPool1d(2)
+
+        self.lstm = nn.LSTM(input_size=input_size,
+                            hidden_size=hidden_size,
+                            num_layers=num_layers,
+                            dropout=dropout,
+                            bidirectional=True,
+                            batch_first=True)
+
+        self.linear = nn.Linear(2*hidden_size, num_classes)
+
+    def forward(self, x):
+        hidden_cell = (torch.zeros(2*self.num_layers, x.size(0), self.hidden_size),
+                       torch.zeros(2*self.num_layers, x.size(0), self.hidden_size))
+        x = x.unsqueeze(1)
+
+        x = self.cn1(x)
+        x = self.relu1(x)
+        x = self.max_pool1(x)
+
+        x = self.cn2(x)
+        x = self.relu2(x)
+        x = self.max_pool2(x)
+
+        x = x.transpose(1,2)
+
+        x, hidden_cell = self.lstm(x, hidden_cell)
+        x = F.dropout(x[:, -1, :], 0.1)
+        x = F.relu(x)
+        logits = self.linear(x)
+        return logits
+
+    def configure_optimizers(self):
+        optimizer = self.optimizer(self.parameters(), lr=self.lr)
+        return optimizer
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+        else:
+            loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+        acc = self.train_acc(y_pred, y)
+        self.log("train_loss", loss)
+        self.log('train_acc', acc, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            val_loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+        else:
+            val_loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+        acc = self.val_acc(y_pred, y)
+        self.log("val_loss", val_loss)
+        self.log('val_acc', acc, prog_bar=True)
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        if self.num_classes == 1:
+            y_hat = y_hat.view(-1)
+            test_loss = self.criterion(y_hat, y.float())
+            y_pred = torch.sigmoid(y_hat)
+            self.test_AUROC(y_pred, y)
+            self.test_PRC(y_pred, y)
+        else:
+            test_loss = self.criterion(y_hat, y)
+            y_pred = torch.softmax(y_hat, dim=1)
+        acc = self.test_acc(y_pred, y)
+        self.log("test_loss", test_loss)
+        self.log("test_acc", acc)
+
+    def test_step_end(self, test_step_outputs):
+        if(self.num_classes == 1):
+            test_ROC = self.test_AUROC.compute()
+            self.log("test roc", test_ROC)
+
+            precision, recall, threshold = self.test_PRC.compute()
+            self.log("test_precision", precision)
+            self.log("test_recall", recall)
+            self.log("test_threshold", threshold)
+            test_PRC = self.test_AUC(recall, precision)
+            self.log("test prc", test_PRC)
+
 
 class CNNModel(pl.LightningModule):
-    def __init__(self, criterion, optimizer, num_classes, lr = 1e-3, dropout=0.1):
+    def __init__(self, criterion, optimizer, num_classes, lr=1e-3, dropout=0.1):
         super(CNNModel, self).__init__()
 
         self.save_hyperparameters()
 
         self.lr = lr
         self.num_classes = num_classes
-        self.dropout = dropout        
+        self.dropout = dropout
         self.optimizer = OPTIMIZER[optimizer]
         self.criterion = CRITERION[criterion]()
 
@@ -240,17 +407,17 @@ class CNNModel(pl.LightningModule):
         self.flatten = nn.Flatten()
         self.flatten0 = nn.Flatten(0)
 
-
-        self.test_acc  = Accuracy()
+        self.test_acc = Accuracy()
         self.train_acc = Accuracy()
         self.val_acc = Accuracy()
 
         self.test_AUROC = AUROC(pos_label=1)
         self.test_PRC = PrecisionRecallCurve(pos_label=1)
         self.test_AUC = AUC()
+
     def forward(self, x):
         x = x.unsqueeze(1)
-        
+
         x = self.maxP(F.relu(self.c1(self.dropout(x))))
         x = self.maxP(F.relu(self.c2(self.dropout(x))))
         x = self.maxP(F.relu(self.c3(self.dropout(x))))
@@ -298,7 +465,6 @@ class CNNModel(pl.LightningModule):
         self.log("val_loss", loss, prog_bar=True)
         self.log('val_acc', acc)
 
-
     def test_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self(x)
@@ -329,8 +495,9 @@ class CNNModel(pl.LightningModule):
             test_PRC = self.test_AUC(recall, precision)
             self.log("test prc", test_PRC)
 
+
 class CNNResidual(pl.LightningModule):
-    def __init__(self, criterion, optimizer, num_classes = 1, lr = 1e-3, dropout= 0.1):
+    def __init__(self, criterion, optimizer, num_classes=1, lr=1e-3, dropout=0.1):
         super(CNNResidual, self).__init__()
 
         self.save_hyperparameters()
@@ -356,7 +523,7 @@ class CNNResidual(pl.LightningModule):
         self.flatten = nn.Flatten()
         self.flatten0 = nn.Flatten(0)
 
-        self.test_acc  = Accuracy()
+        self.test_acc = Accuracy()
         self.train_acc = Accuracy()
         self.val_acc = Accuracy()
 
@@ -369,7 +536,7 @@ class CNNResidual(pl.LightningModule):
         r1 = r1.unsqueeze(1)
 
         r2 = torch.div(x, self.num_classes + 1)
-        
+
         x = x.unsqueeze(1)
 
         x = self.maxP(F.relu(self.c1(self.dropout(x))))
@@ -419,7 +586,6 @@ class CNNResidual(pl.LightningModule):
         acc = self.val_acc(y_pred, y)
         self.log("val_loss", loss)
         self.log('val_acc', acc, prog_bar=True)
-
 
     def test_step(self, batch, batch_idx):
         x, y = batch

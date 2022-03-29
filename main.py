@@ -9,14 +9,15 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from sklearn.model_selection import train_test_split
 
 from src.dataset import MITDataModule
-from src.model import CNNBaseline, CNNModel, RNNModel, CNNResidual
+from src.model import CNNBaseline, CNNModel, RNNModel, CNNResidual, BidirectionalLSTM
 
 
 MODEL_DICT = {
     "baseline_cnn": CNNBaseline,
     "vanilla_rnn": RNNModel,
     "vanilla_cnn": CNNModel,
-    "cnn_residual": CNNResidual
+    "cnn_residual": CNNResidual,
+    "bidirectional_lstm": BidirectionalLSTM
 }
 
 
