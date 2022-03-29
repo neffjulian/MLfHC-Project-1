@@ -2,11 +2,13 @@ import argparse
 import os
 
 import pandas as pd
+from sklearn.utils import resample
 import yaml
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from sklearn.model_selection import train_test_split
+from sklearn.utils import resample
 
 from src.dataset import MITDataModule
 from src.model import CNNBaseline, CNNModel, RNNModel, CNNResidual, BidirectionalLSTM
@@ -21,10 +23,32 @@ MODEL_DICT = {
 }
 
 
-def get_datamodule(name, **kwargs):
+def get_balanced_dataset(df):
+    df0 = df[df[187] == 0]
+    df1 = df[df[187] == 1]
+    df2 = df[df[187] == 2]
+    df3 = df[df[187] == 3]
+    df4 = df[df[187] == 4]
+
+    df0_resampled = df0.sample(n=20000, random_state=42)
+    df2_resampled = resample(df2, n_samples=20000,
+                             random_state=42, replace=True)
+    df3_resampled = resample(df3, n_samples=20000,
+                             random_state=42, replace=True)
+    df4_resampled = resample(df4, n_samples=20000,
+                             random_state=42, replace=True)
+    df1_resampled = resample(df1, n_samples=20000,
+                             random_state=42, replace=True)
+
+    return pd.concat([df0_resampled, df1_resampled, df2_resampled, df3_resampled, df4_resampled]).reset_index(drop=True)
+
+
+def get_datamodule(name, resample=False, **kwargs):
     if name == "mitbih":
         df_train = pd.read_csv("data/mitbih_train.csv", header=None)
         df_test = pd.read_csv("data/mitbih_test.csv", header=None)
+        if resample:
+            df_train = get_balanced_dataset(df_train)
     elif name == "ptbdb":
         df_1 = pd.read_csv("data/ptbdb_normal.csv", header=None)
         df_2 = pd.read_csv("data/ptbdb_abnormal.csv", header=None)
@@ -42,6 +66,7 @@ def run_experiment(cfg):
 
     datamodule = get_datamodule(
         cfg["dataset"],
+        cfg.get("resample", False),
         batch_size=cfg["batch_size"],
         train_split=cfg["train_val_split"]
     )
@@ -50,7 +75,8 @@ def run_experiment(cfg):
 
     callbacks = []
     if cfg["early_stopping"]:
-        callbacks.append(EarlyStopping(monitor="val_loss", patience=cfg["patience"]))
+        callbacks.append(EarlyStopping(
+            monitor="val_loss", patience=cfg["patience"]))
 
     logger = TensorBoardLogger(save_dir="logs", name=cfg["experiment_name"])
 
@@ -63,19 +89,12 @@ def run_experiment(cfg):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", help="path to config file",
+    parser.add_argument("--config", nargs='+', help="path to one or more config file",
                         default="configs/mitbih_baseline_cnn.yaml")
-    parser.add_argument("--all", help="run all experiments", action="store_true")
+
     args = parser.parse_args()
 
-    if args.all:
-        config_dir = "configs"
-        for filename in os.listdir(config_dir):
-            file = os.path.join(config_dir, filename)
-            with open(file) as f:
-                config = yaml.load(f, yaml.FullLoader)
-            run_experiment(config)
-    else:
-        with open(args.config) as f:
+    for filename in args.config:
+        with open(filename) as f:
             config = yaml.load(f, yaml.FullLoader)
         run_experiment(config)
